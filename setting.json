@@ -3,5 +3,6 @@
     "wanted": [
         "member_a",
         "member_b"
-    ]
+    ],
+    "interval": 60.0
 }

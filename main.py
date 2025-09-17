@@ -7,7 +7,7 @@ from pathlib import Path
 from os import makedirs, path
 from threading import Thread
 from time import sleep
-from typing import Dict, List
+from typing import Dict, List, Pattern
 #endregion
 
 #region definitions
@@ -111,30 +111,31 @@ log.addHandler(csHdl)
 #endregion
 
 #region methods
-def isOnline(model: str) -> bool:
+def getOnlineUsers() -> List[str]:
     """
-    check `username` is online?
-    @model: the `username` of Cam4
-    @return: (True)on-line (False)off-line
+    Query all online users
+    @returns: online user list
     """
+    userList: List[str] = []
     try:
-        log.info(f"checking {model} has online...")
+        log.info(f"querying online users...")
 
-        # result = requests.get(
-        #     f"https://www.cam4.com/rest/v1.0/profile/{model}/info"
-        # ).json()
-        # online = bool(result["online"])
+        i = 1
+        while True:
+            users = reqSs.get(
+                f"https://www.cam4.com/directoryCams?directoryJson=true&online=true&page={i}",
+                headers=headers
+            ).json()
+            if len(users) > 0:
+                userList.extend([u["username"] for u in users])
+                i = i + 1
+            else:
+                break
         
-        result = reqSs.get(
-            f"https://www.cam4.com/directoryCams?directoryJson=true&online=true&username={model}",
-            headers=headers
-        ).json()
-        online = len(result) > 0
-
-        log.info(f"    ...{'online' if online else 'offline'}")
-        return online
+        log.info(f"    ...{len(userList)} users are online")
     except:
-        log.exception("getOnlineModel")
+        log.exception("getOnlineUsers")
+    return userList
 
 def startRecording(model: str) -> None:
     """
@@ -199,7 +200,6 @@ def startRecording(model: str) -> None:
 
 #region main
 if __name__ == "__main__":
-    lastTime = (datetime.now() - timedelta(seconds=monitor_interval))
     try:
         # loading setting
         curLoc = os.path.realpath(
@@ -212,7 +212,17 @@ if __name__ == "__main__":
         with open(fn, "rb") as fs:
             config = json.load(fs)
         save_dir = config["out_dir"]
+        if (not save_dir):
+            log.error("out_dir can not be empty or null. please setup in setting.json")
+            exit(1)
         wanted = config["wanted"]
+        if (not wanted) or (len(wanted) == 0):
+            log.error("no wanted username. please setup in setting.json")
+            exit(1)
+        if "interval" in config:
+            monitor_interval = float(config["interval"])
+        # Rewind time monitor_interval seconds. so that can check online users on first execution
+        lastTime = (datetime.now() - timedelta(seconds=monitor_interval))
         # loop for monitoring
         while True:
             # if less than interval, sleep it
@@ -220,9 +230,11 @@ if __name__ == "__main__":
                 sleep(10)
                 continue
             lastTime = datetime.now()
+            # query all online user
+            users = getOnlineUsers()
             # check each `username`
             for model in wanted:
-                if isOnline(model):
+                if model in users:
                     # if recording, just log it
                     if model in recording:
                         log.info(f"    {model} had recording...")
