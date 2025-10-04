@@ -111,48 +111,41 @@ log.addHandler(csHdl)
 #endregion
 
 #region methods
-def getOnlineUsers() -> List[str]:
+def getStreamInfo(model: str) -> str:
     """
-    Query all online users
-    @returns: online user list
+    Query user is online and return its stream url
+    @model: the username to query info
+    @returns: hlsurl
     """
-    userList: List[str] = []
+    hlsurl: str = ""
     try:
-        log.info(f"querying online users...")
+        log.info(f"querying '{model}' ...")
 
-        i = 1
-        while True:
-            users = reqSs.get(
-                f"https://www.cam4.com/directoryCams?directoryJson=true&online=true&page={i}",
-                headers=headers
-            ).json()
-            if len(users) > 0:
-                userList.extend([u["username"] for u in users])
-                i = i + 1
+        rsp = reqSs.get(
+            f"https://www.cam4.com/rest/v1.0/profile/{model}/streamInfo",
+            headers=headers
+        )
+        if rsp.ok and rsp.content:
+            info = rsp.json()
+            if info["canUseCDN"] and ("cdnURL" in info):
+                hlsurl = info["cdnURL"]
+                log.info(f"    ...{model} is online. caught cdnURL '{hlsurl}'")
             else:
-                break
-        
-        log.info(f"    ...{len(userList)} users are online")
+                log.info(f"    ...{model} is online but no streaming")
     except:
-        log.exception("getOnlineUsers")
-    return userList
+        log.exception("getStreamInfo")
+    return hlsurl
 
-def startRecording(model: str) -> None:
+def startRecording(model: str, hlsurl: str) -> None:
     """
     Start recording to .mp4
     @model: the `username` of Cam4
+    @hlsurl: the 'cdnURL` of streaming
     """
     try:
-        log.info(f"{model} is online. catching stream info...")
+        log.info(f"starting to record '{model}' ...")
         recording.append(model)
-        stmInfo = reqSs.get(
-            f"https://www.cam4.com/rest/v1.0/profile/{model}/streamInfo",
-            headers=headers
-        ).json()
-        if stmInfo["canUseCDN"]:
-            hlsurl = stmInfo["cdnURL"]
-            log.info(f"caught cdnURL at {hlsurl}")
-
+        if hlsurl:
             session = Livestreamer()
             session.set_option(
                 "http-headers",
@@ -176,7 +169,7 @@ def startRecording(model: str) -> None:
             )
             
             with open(file, "wb") as f:
-                log.info(f"starts to recording '{model}' on '{file}'")
+                log.info(f"    recording '{model}' on '{file}'")
                 while True:
                     try:
                         data = fd.read(1024)
@@ -230,17 +223,19 @@ if __name__ == "__main__":
                 sleep(10)
                 continue
             lastTime = datetime.now()
-            # query all online user
-            users = getOnlineUsers()
             # check each `username`
             for model in wanted:
-                if model in users:
+                # delay
+                sleep(1)
+                # check is online?
+                hlsurl = getStreamInfo(model)
+                if hlsurl:
                     # if recording, just log it
                     if model in recording:
                         log.info(f"    {model} had recording...")
                         continue
                     # first time on-line, create a new thread to record
-                    thread = Thread(target=startRecording, args=(model.lower(),))
+                    thread = Thread(target=startRecording, args=(model.lower(), hlsurl))
                     thread.start()
                     # wait thread start. to prevent next `for-loop` too fast than add `recording`
                     while not thread.is_alive():
