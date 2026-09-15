@@ -1,5 +1,4 @@
 import ast
-import io
 import logging
 import pathlib
 import tempfile
@@ -18,6 +17,7 @@ def load_functions():
               reqSs=Mock(), headers={}, datetime=datetime, path=__import__('os').path,
               makedirs=__import__('os').makedirs, Livestreamer=Mock(),
               Thread=threading.Thread, recording_lock=threading.Lock(),
+              stop_event=threading.Event(),
               monotonic=time.monotonic, progress={}, progress_lock=threading.Lock())
     # Postponed annotations allow loading functions without starting the application.
     exec(compile(functions, str(source), 'exec', flags=__import__('__future__').annotations.compiler_flag), ns)
@@ -77,6 +77,61 @@ class ReliabilityTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             ns['launchRecording']('test', 'url')
         self.assertEqual(ns['recording'], [])
+
+    def test_uncaught_thread_exception_is_logged_with_traceback(self):
+        ns = load_functions()
+        error = RuntimeError('worker crashed')
+        args = Mock(exc_type=RuntimeError, exc_value=error, exc_traceback=None)
+        ns['logThreadException'](args)
+        self.assertEqual(ns['log'].critical.call_args.kwargs['exc_info'],
+                         (RuntimeError, error, None))
+
+    def test_watchdog_detects_stall_and_old_process(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            'watchdog', pathlib.Path(__file__).resolve().parents[1] / 'watchdog.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        status = {'pid': 10, 'updated': 100, 'unhealthy': False}
+        self.assertFalse(module.stale_status(status, 10, 110, 180))
+        self.assertTrue(module.stale_status(status, 11, 110, 180))
+        self.assertTrue(module.stale_status(status, 10, 281, 180))
+        status['unhealthy'] = True
+        self.assertTrue(module.stale_status(status, 10, 110, 180))
+        with tempfile.TemporaryDirectory() as directory:
+            child = Mock()
+            stop_path = pathlib.Path(directory) / 'stop.request'
+            module.stop_child(child, stop_path)
+            self.assertTrue(stop_path.exists())
+            child.kill.assert_not_called()
+            child.wait.side_effect = [module.subprocess.TimeoutExpired('child', 80), 0]
+            module.stop_child(child, stop_path)
+            child.kill.assert_called_once()
+
+    def test_health_marks_stalled_worker_and_writes_snapshot(self):
+        ns = load_functions()
+        import os
+        import shutil
+        import json
+        ns.update(os=os, shutil=shutil, json=json, Path=pathlib.Path,
+                  main_progress=time.monotonic(), last_scan=None, faulthandler=Mock())
+        ns['progress'] = {'test': {'updated': time.monotonic() - 181, 'bytes': 123}}
+        ns['stop_event'] = Mock()
+        ns['stop_event'].is_set.side_effect = [False, True]
+        with tempfile.TemporaryDirectory() as directory:
+            ns.update(save_dir=directory, log_dir=pathlib.Path(directory))
+            target = pathlib.Path(directory) / 'health.json'
+            with patch.dict(os.environ, {'CAM4_HEALTH_FILE': str(target)}, clear=True):
+                ns['reportHealth']()
+            status = json.loads(target.read_text())
+            self.assertTrue(status['unhealthy'])
+            self.assertEqual(status['recordings']['test']['bytes'], 123)
+            ns['faulthandler'].dump_traceback.assert_called_once()
+
+    def test_rollover_supports_dotted_directories(self):
+        ns = load_functions()
+        self.assertEqual(ns['dailyLogNamer']('D:/logs.v1/capture.log.20260915.log'),
+                         'D:/logs.v1/capture_20260915.log')
 
 
 if __name__ == '__main__':
