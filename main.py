@@ -5,7 +5,7 @@ from livestreamer import Livestreamer
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 from os import makedirs, path
-from threading import Thread
+from threading import Thread, Lock
 from time import sleep
 from typing import Dict, List, Pattern
 #endregion
@@ -18,6 +18,7 @@ wanted: List[str] = []
 monitor_interval: float = 60.0
 "interval in seconds of scan `wanted` again"
 recording: List[str] = []
+recording_lock = Lock()
 "indicate who is recording"
 headers: Dict[str, str] = {"User-Agent": "Mozilla/5.0 (X11; CrOS x86_64 12871.102.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.141 Safari/537.36"}
 "default header for requests"
@@ -147,7 +148,6 @@ def startRecording(model: str, hlsurl: str) -> None:
     fd = None
     try:
         log.info(f"starting to record '{model}' ...")
-        recording.append(model)
         if hlsurl:
             session = Livestreamer()
             session.set_option("http-timeout", 30.0)
@@ -201,8 +201,24 @@ def startRecording(model: str, hlsurl: str) -> None:
             except Exception:
                 log.exception("closing stream: %s", model)
         log.info(f"stop to recording '{model}'")
+        with recording_lock:
+            if model in recording:
+                recording.remove(model)
+
+def launchRecording(model: str, hlsurl: str) -> None:
+    model = model.lower()
+    with recording_lock:
         if model in recording:
+            return
+        recording.append(model)
+    try:
+        thread = Thread(target=startRecording, args=(model, hlsurl),
+                        name=f"record-{model}", daemon=True)
+        thread.start()
+    except Exception:
+        with recording_lock:
             recording.remove(model)
+        raise
 #endregion
 
 #region main
@@ -222,7 +238,7 @@ if __name__ == "__main__":
         if (not save_dir):
             log.error("out_dir can not be empty or null. please setup in setting.json")
             exit(1)
-        wanted = config["wanted"]
+        wanted = list(dict.fromkeys(model.lower() for model in config["wanted"]))
         if (not wanted) or (len(wanted) == 0):
             log.error("no wanted username. please setup in setting.json")
             exit(1)
@@ -240,7 +256,9 @@ if __name__ == "__main__":
             # check each `username`
             for model in wanted:
                 # if recording, just log it
-                if model in recording:
+                with recording_lock:
+                    is_recording = model in recording
+                if is_recording:
                     log.info(f"    {model} had recording...")
                     continue
                 # delay
@@ -248,12 +266,7 @@ if __name__ == "__main__":
                 # check is online?
                 hlsurl = getStreamInfo(model)
                 if hlsurl:
-                    # first time on-line, create a new thread to record
-                    thread = Thread(target=startRecording, args=(model.lower(), hlsurl))
-                    thread.start()
-                    # wait thread start. to prevent next `for-loop` too fast than add `recording`
-                    while not thread.is_alive():
-                        sleep(1)
+                    launchRecording(model, hlsurl)
     except KeyboardInterrupt:
         print("terminate")
 #endregion

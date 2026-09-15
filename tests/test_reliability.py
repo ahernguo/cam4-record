@@ -37,7 +37,7 @@ class ReliabilityTests(unittest.TestCase):
         fd = Mock()
         fd.read.side_effect = [b'video', b'']
         ns['Livestreamer'].return_value.streams.return_value = {'best': Mock(open=Mock(return_value=fd))}
-        ns['recording'] = []
+        ns['recording'] = ['test']
         with tempfile.TemporaryDirectory() as directory:
             ns['save_dir'] = directory
             if write_failure:
@@ -55,6 +55,28 @@ class ReliabilityTests(unittest.TestCase):
 
     def test_file_failure_closes_stream(self):
         self.record(write_failure=True)
+
+    def test_fast_worker_does_not_block_launcher(self):
+        ns = load_functions()
+        def finish(**kwargs):
+            worker = Mock()
+            worker.start.side_effect = lambda: ns['recording'].remove(kwargs['args'][0])
+            return worker
+        ns['Thread'] = Mock(side_effect=finish)
+        ns['launchRecording']('TEST', 'url')
+        self.assertEqual(ns['recording'], [])
+
+    def test_duplicate_launch_and_start_failure(self):
+        ns = load_functions()
+        ns['Thread'] = Mock()
+        ns['launchRecording']('TEST', 'url')
+        ns['launchRecording']('test', 'url')
+        ns['Thread'].assert_called_once()
+        ns['recording'].clear()
+        ns['Thread'].return_value.start.side_effect = RuntimeError('thread limit')
+        with self.assertRaises(RuntimeError):
+            ns['launchRecording']('test', 'url')
+        self.assertEqual(ns['recording'], [])
 
 
 if __name__ == '__main__':
