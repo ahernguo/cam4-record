@@ -11,7 +11,7 @@ from typing import Dict, List, Pattern
 #endregion
 
 #region definitions
-save_dir: str = "D:\Cam4"
+save_dir: str = "D:\\Cam4"
 "the directory to saving video"
 wanted: List[str] = []
 "the `username` list to monitoring and recording"
@@ -123,8 +123,10 @@ def getStreamInfo(model: str) -> str:
 
         rsp = reqSs.get(
             f"https://www.cam4.com/rest/v1.0/profile/{model}/streamInfo",
-            headers=headers
+            headers=headers,
+            timeout=(10, 30)
         )
+        rsp.raise_for_status()
         if rsp.ok and rsp.content:
             info = rsp.json()
             if info["canUseCDN"] and ("cdnURL" in info):
@@ -132,7 +134,7 @@ def getStreamInfo(model: str) -> str:
                 log.info(f"    ...{model} is online. caught cdnURL '{hlsurl}'")
             else:
                 log.info(f"    ...{model} is online but no streaming")
-    except:
+    except Exception:
         log.exception("getStreamInfo")
     return hlsurl
 
@@ -142,11 +144,15 @@ def startRecording(model: str, hlsurl: str) -> None:
     @model: the `username` of Cam4
     @hlsurl: the 'cdnURL` of streaming
     """
+    fd = None
     try:
         log.info(f"starting to record '{model}' ...")
         recording.append(model)
         if hlsurl:
             session = Livestreamer()
+            session.set_option("http-timeout", 30.0)
+            session.set_option("hls-segment-timeout", 15.0)
+            session.set_option("hls-timeout", 60.0)
             session.set_option(
                 "http-headers",
                 f"referer=https://www.cam4.com/{model}"
@@ -172,20 +178,28 @@ def startRecording(model: str, hlsurl: str) -> None:
                 log.info(f"    recording '{model}' on '{file}'")
                 while True:
                     try:
-                        data = fd.read(1024)
+                        data = fd.read(64 * 1024)
+                        if not data:
+                            log.info("stream ended: %s", model)
+                            break
                         f.write(data)
                     except KeyboardInterrupt:
                         break
-                    except:
+                    except Exception:
                         log.exception("recording")
                         break
         else:
             log.info(f"{model} was in private show")
     except KeyboardInterrupt:
         return
-    except:
+    except Exception:
         log.exception("startRecording")
     finally:
+        if fd is not None:
+            try:
+                fd.close()
+            except Exception:
+                log.exception("closing stream: %s", model)
         log.info(f"stop to recording '{model}'")
         if model in recording:
             recording.remove(model)
@@ -225,15 +239,15 @@ if __name__ == "__main__":
             lastTime = datetime.now()
             # check each `username`
             for model in wanted:
+                # if recording, just log it
+                if model in recording:
+                    log.info(f"    {model} had recording...")
+                    continue
                 # delay
                 sleep(1)
                 # check is online?
                 hlsurl = getStreamInfo(model)
                 if hlsurl:
-                    # if recording, just log it
-                    if model in recording:
-                        log.info(f"    {model} had recording...")
-                        continue
                     # first time on-line, create a new thread to record
                     thread = Thread(target=startRecording, args=(model.lower(), hlsurl))
                     thread.start()
