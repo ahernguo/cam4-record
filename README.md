@@ -71,3 +71,13 @@ python -m py_compile main.py watchdog.py
 ```
 
 測試使用模擬串流及暫存檔案，不連線到錄影網站。
+
+## MP4 輸出
+
+需要 FFmpeg（含 libx264）與 ffprobe，可放入 PATH，或設定 CAM4_FFMPEG、CAM4_FFPROBE 為執行檔完整路徑。
+錄影中寫入 `.capture`，正常收尾後改成 `.source`，背景工作以 ffprobe 辨識實際格式。
+H.264/yuv420p 與 AAC 可直接重新封裝；其他編碼轉為 H.264/yuv420p 與 AAC。
+先寫 `.encoding.mp4`，驗證封裝、編碼與正數長度後才發布 `.mp4`，並啟用 faststart。
+原始 `.source` 保留，會額外使用磁碟空間；失敗詳情見 `.ffmpeg.log` 與 capture.log，重啟後重試。
+強制終止留下的 `.capture` 不會自動處理：確認原程序已停止後，才能手動改成 `.source` 以恢復。
+舊版產生的 `.mp4` 不會自動修改。轉檔在錄影結束後開始；長時間直播尚未結束時只有 `.capture` 是正常情況。

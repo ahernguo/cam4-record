@@ -1,6 +1,7 @@
 #region includes
 import json, logging, re, requests, sys, os
 import faulthandler
+import media_output
 import math
 import shutil
 import threading
@@ -10,7 +11,7 @@ from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 from os import makedirs, path
 from threading import Thread, Lock, Event
-from time import sleep, monotonic
+from time import sleep, monotonic, time_ns
 from typing import Dict, List
 #endregion
 
@@ -190,6 +191,7 @@ def startRecording(model: str, hlsurl: str) -> None:
     @hlsurl: the 'cdnURL` of streaming
     """
     fd = None
+    file = None
     try:
         log.info(f"starting to record '{model}' ...")
         if hlsurl:
@@ -215,7 +217,7 @@ def startRecording(model: str, hlsurl: str) -> None:
             file = path.join(
                 save_dir,
                 model,
-                f"{model}_{st}.mp4"
+                f"{model}_{st}_{time_ns()}.capture"
             )
             
             with open(file, "wb") as f:
@@ -248,6 +250,11 @@ def startRecording(model: str, hlsurl: str) -> None:
                 fd.close()
             except Exception:
                 log.exception("closing stream: %s", model)
+        if file and path.exists(file):
+            try:
+                os.replace(file, str(Path(file).with_suffix(".source")))
+            except OSError:
+                log.exception("cannot publish capture for conversion: %s", file)
         log.info(f"stop to recording '{model}'")
         with progress_lock:
             progress.pop(model, None)
@@ -302,7 +309,10 @@ if __name__ == "__main__":
             monitor_interval = float(config["interval"])
         if not math.isfinite(monitor_interval) or monitor_interval <= 0:
             raise ValueError("interval must be finite and positive")
+        media_output.executable("ffmpeg")
+        media_output.executable("ffprobe")
         makedirs(save_dir, exist_ok=True)
+        Thread(target=media_output.worker, args=(save_dir, stop_event), name="media-output", daemon=True).start()
         main_progress = monotonic()
         Thread(target=reportHealth, name="health", daemon=True).start()
         # Rewind time monitor_interval seconds. so that can check online users on first execution
@@ -342,8 +352,9 @@ if __name__ == "__main__":
         stop_event.set()
         deadline = monotonic() + 70
         for worker in threading.enumerate():
-            if worker.name.startswith("record-"):
+            if worker.name.startswith("record-") or worker.name == "media-output":
                 worker.join(max(0, deadline - monotonic()))
         reqSs.close()
         log.info("process stopping")
 #endregion
+

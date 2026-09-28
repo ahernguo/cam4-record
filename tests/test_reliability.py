@@ -13,12 +13,12 @@ def load_functions():
     source = pathlib.Path(__file__).resolve().parents[1] / "main.py"
     tree = ast.parse(source.read_text(encoding="utf-8"))
     functions = ast.Module(body=[n for n in tree.body if isinstance(n, ast.FunctionDef)], type_ignores=[])
-    ns = dict(str=str, logging=logging, log=Mock(), recording=[],
+    ns = dict(os=__import__('os'), Path=pathlib.Path, str=str, logging=logging, log=Mock(), recording=[],
               reqSs=Mock(), headers={}, datetime=datetime, path=__import__('os').path,
               makedirs=__import__('os').makedirs, Livestreamer=Mock(),
               Thread=threading.Thread, recording_lock=threading.Lock(),
               stop_event=threading.Event(),
-              monotonic=time.monotonic, progress={}, progress_lock=threading.Lock())
+              monotonic=time.monotonic, time_ns=time.time_ns, progress={}, progress_lock=threading.Lock())
     # Postponed annotations allow loading functions without starting the application.
     exec(compile(functions, str(source), 'exec', flags=__import__('__future__').annotations.compiler_flag), ns)
     return ns
@@ -45,7 +45,7 @@ class ReliabilityTests(unittest.TestCase):
                     ns['startRecording']('test', 'https://example.invalid/stream')
             else:
                 ns['startRecording']('test', 'https://example.invalid/stream')
-                self.assertEqual(next(pathlib.Path(directory).rglob('*.mp4')).read_bytes(), b'video')
+                self.assertEqual(next(pathlib.Path(directory).rglob('*.source')).read_bytes(), b'video')
                 self.assertEqual(fd.read.call_count, 2)
         fd.close.assert_called_once()
         self.assertNotIn('test', ns['recording'])
@@ -136,4 +136,5 @@ class ReliabilityTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
 
