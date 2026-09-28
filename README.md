@@ -81,3 +81,13 @@ H.264/yuv420p 與 AAC 可直接重新封裝；其他編碼轉為 H.264/yuv420p �
 原始 `.source` 保留，會額外使用磁碟空間；失敗詳情見 `.ffmpeg.log` 與 capture.log，重啟後重試。
 強制終止留下的 `.capture` 不會自動處理：確認原程序已停止後，才能手動改成 `.source` 以恢復。
 舊版產生的 `.mp4` 不會自動修改。轉檔在錄影結束後開始；長時間直播尚未結束時只有 `.capture` 是正常情況。
+
+## 聊天室實驗版（feature/chat）
+
+預設同步監聽公開聊天室，錄影結束後另產生 `.chat.mp4`：透明底、黃帳號／白內容、黑描邊。
+重啟前請在原本的 Python 環境執行 `python -m pip install -r requirements.txt`；預設使用已安裝的 Edge。
+沒有抓到訊息時僅產生純影音 `.mp4`，詳情見同名 `.chat-status.json`。
+時間同步目前使用接收時間，尚待實錄校準。
+
+- [實作與優先順序](docs/chat-implementation.md)
+- [啟動方式、輸出檔與驗收流程](docs/chat-test-plan.md)

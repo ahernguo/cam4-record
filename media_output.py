@@ -52,7 +52,7 @@ def convert(source, stop, subtitle=None, suffix=''):
     # Remux compatible streams; encode only when necessary or when burning text.
     compatible = videos[0].get('codec_name') == 'h264' and videos[0].get('pix_fmt') == 'yuv420p'
     command += ['-c:v', 'copy'] if compatible and not subtitle else [
-        '-vf', ('ass=' + subtitle.name + ',' if subtitle else '') + 'pad=ceil(iw/2)*2:ceil(ih/2)*2',
+        '-vf', ('ass=' + subtitle.as_posix() + ',' if subtitle else '') + 'pad=ceil(iw/2)*2:ceil(ih/2)*2',
         '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p']
     audio = [s for s in info['streams'] if s['codec_type'] == 'audio']
     command += ['-c:a', 'copy' if not audio or audio[0].get('codec_name') == 'aac' else 'aac',
@@ -83,6 +83,20 @@ def convert(source, stop, subtitle=None, suffix=''):
 
 def process_recording(source, stop):
     convert(source, stop)
+    import chat_subtitles
+    info = probe(source)
+    video = next(s for s in info['streams'] if s['codec_type'] == 'video')
+    subtitle = chat_subtitles.generate(source, float(info['format']['duration']),
+                                       video['width'], video['height'])
+    if subtitle:
+        import tempfile
+        with tempfile.TemporaryDirectory(prefix='chat-', dir=source.parent) as folder:
+            safe = Path(folder) / 'chat.ass'
+            shutil.copyfile(subtitle, safe)
+            relative = safe.relative_to(source.parent).as_posix()
+            convert(source, stop, subtitle=Path(relative), suffix='.chat')
+    else:
+        log.warning('no usable chat messages; plain MP4 retained: %s', source)
 
 
 def worker(root, stop):

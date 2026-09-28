@@ -2,6 +2,7 @@
 import json, logging, re, requests, sys, os
 import faulthandler
 import media_output
+import chat_capture
 import math
 import shutil
 import threading
@@ -27,6 +28,7 @@ recording_lock = Lock()
 progress_lock = Lock()
 progress = {}
 stop_event = Event()
+chat_options = {"enabled": True, "offset_seconds": 0}
 main_progress = monotonic()
 last_scan = None
 "indicate who is recording"
@@ -192,6 +194,7 @@ def startRecording(model: str, hlsurl: str) -> None:
     """
     fd = None
     file = None
+    chat = None
     try:
         log.info(f"starting to record '{model}' ...")
         if hlsurl:
@@ -221,6 +224,12 @@ def startRecording(model: str, hlsurl: str) -> None:
             )
             
             with open(file, "wb") as f:
+                try:
+                    Path(file).with_suffix('.chat-options.json').write_text(
+                        json.dumps(chat_options), encoding='utf-8')
+                    chat = chat_capture.start(file, model, chat_options)
+                except Exception:
+                    log.exception('chat setup failed; continuing video recording')
                 log.info(f"    recording '{model}' on '{file}'")
                 while not stop_event.is_set():
                     try:
@@ -245,6 +254,11 @@ def startRecording(model: str, hlsurl: str) -> None:
     except Exception:
         log.exception("startRecording")
     finally:
+        if chat is not None:
+            try:
+                chat.close()
+            except Exception:
+                log.exception('chat cleanup failed; continuing video cleanup')
         if fd is not None:
             try:
                 fd.close()
@@ -302,6 +316,7 @@ if __name__ == "__main__":
             log.error("out_dir can not be empty or null. please setup in setting.json")
             exit(1)
         wanted = list(dict.fromkeys(model.lower() for model in config["wanted"]))
+        chat_options.update(config.get('chat', {}))
         if (not wanted) or (len(wanted) == 0):
             log.error("no wanted username. please setup in setting.json")
             exit(1)

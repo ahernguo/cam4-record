@@ -13,7 +13,7 @@ def load_functions():
     source = pathlib.Path(__file__).resolve().parents[1] / "main.py"
     tree = ast.parse(source.read_text(encoding="utf-8"))
     functions = ast.Module(body=[n for n in tree.body if isinstance(n, ast.FunctionDef)], type_ignores=[])
-    ns = dict(os=__import__('os'), Path=pathlib.Path, str=str, logging=logging, log=Mock(), recording=[],
+    ns = dict(chat_capture=Mock(start=Mock(return_value=None)), chat_options={}, json=__import__('json'), os=__import__('os'), Path=pathlib.Path, str=str, logging=logging, log=Mock(), recording=[],
               reqSs=Mock(), headers={}, datetime=datetime, path=__import__('os').path,
               makedirs=__import__('os').makedirs, Livestreamer=Mock(),
               Thread=threading.Thread, recording_lock=threading.Lock(),
@@ -32,12 +32,14 @@ class ReliabilityTests(unittest.TestCase):
         self.assertEqual(ns['reqSs'].get.call_args.kwargs['timeout'], (10, 30))
         ns['log'].exception.assert_called()
 
-    def record(self, write_failure=False):
+    def record(self, write_failure=False, chat_failure=False):
         ns = load_functions()
         fd = Mock()
         fd.read.side_effect = [b'video', b'']
         ns['Livestreamer'].return_value.streams.return_value = {'best': Mock(open=Mock(return_value=fd))}
         ns['recording'] = ['test']
+        if chat_failure:
+            ns['chat_capture'].start.return_value = Mock(close=Mock(side_effect=RuntimeError('chat error')))
         with tempfile.TemporaryDirectory() as directory:
             ns['save_dir'] = directory
             if write_failure:
@@ -55,6 +57,9 @@ class ReliabilityTests(unittest.TestCase):
 
     def test_file_failure_closes_stream(self):
         self.record(write_failure=True)
+
+    def test_chat_failure_does_not_prevent_video_cleanup(self):
+        self.record(chat_failure=True)
 
     def test_fast_worker_does_not_block_launcher(self):
         ns = load_functions()
