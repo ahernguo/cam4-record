@@ -26,13 +26,14 @@ class MediaIntegrationTests(unittest.TestCase):
             target = source.with_suffix('.chat.mp4')
             info = media.probe(target)
             self.assertTrue(media.verify_mp4(info))
+            self.assertEqual(info['streams'][0]['codec_name'], 'hevc')
+            self.assertEqual(info['streams'][0]['codec_tag_string'], 'hvc1')
             self.assertEqual(info['streams'][0]['pix_fmt'], 'yuv420p')
             # Limited range is the default for yuv420p; encoders may omit the
             # optional color_range tag rather than reporting it as "tv".
             self.assertIn(info['streams'][0].get('color_range'), (None, 'tv'))
-            self.assertLessEqual(info['streams'][0]['level'], 41)
 
-    def test_h264_without_audio_is_remuxed(self):
+    def test_h264_without_audio_is_transcoded_to_hevc(self):
         try:
             ffmpeg = media.executable('ffmpeg')
             media.executable('ffprobe')
@@ -47,12 +48,8 @@ class MediaIntegrationTests(unittest.TestCase):
             info = media.probe(target)
             self.assertTrue(media.verify_mp4(info))
             self.assertEqual(len(info['streams']), 1)
-            # Decoded frames stay identical through the copy/remux path.
-            hashes = []
-            for file in (source, target):
-                hashes.append(subprocess.run([ffmpeg, '-v', 'error', '-i', str(file), '-map', '0:v',
-                    '-f', 'hash', '-'], check=True, capture_output=True, timeout=30).stdout)
-            self.assertEqual(hashes[0], hashes[1])
+            self.assertEqual(info['streams'][0]['codec_name'], 'hevc')
+            self.assertEqual(info['streams'][0]['codec_tag_string'], 'hvc1')
 
     def test_transport_stream_transcode_and_chat_burn_in(self):
         try:

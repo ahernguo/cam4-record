@@ -23,7 +23,7 @@ python -m pip install -r requirements.txt
 
 FFmpeg 與 ffprobe 必須可執行：PATH、環境變數 `CAM4_FFMPEG`／`CAM4_FFPROBE`，
 或本機 `.tools/ffmpeg*/bin/`。`.tools` 不進版控，不會跟著分支下載到另一台電腦。
-FFmpeg 須含 libx264、libass；本機驗證使用 Gyan essentials 發行包。
+FFmpeg 須含 libx265、libass；本機驗證使用 Gyan essentials 發行包。
 
 由使用者停止舊程序，再執行 `python watchdog.py`。不要同時啟動第二份錄影程序。
 
@@ -62,11 +62,11 @@ Firebase 分框／跨房間過濾、系統事件排除、ASS 控制字元處理�
 ## 本次驗證結果（2026-09-28）
 
 - 27 項測試全部通過，無跳過；Python 語法編譯檢查通過。
-- 實際產生 MPEG-TS / MPEG-2 / MP2 合成影音，轉成 MP4 / H.264 / AAC 並通過 ffprobe。
-- H.264 無音訊樣本重新封裝前後的解碼畫面雜湊相同。
+- 實際產生 MPEG-TS / MPEG-2 / MP2 合成影音，轉成 MP4 / H.265 / AAC 並通過 ffprobe。
+- H.264 無音訊樣本會轉成 H.265/HEVC，並以 `hvc1` 標記封裝於 MP4。
 - 實際 ASS 燒錄後，第 13 秒仍可看到第 0 秒加入的訊息，區域外背景保留；另以截圖目視確認中英文、黃／白文字與黑描邊。
 - 以 2026-10-03 的七則實錄聊天資料產生新版 ASS；最後一則加入後，七則都持續到影片結束。
-- 全範圍 `yuvj420p` 實例會轉成標準 `yuv420p`；MPEG-TS 誤報 90,000 fps 時，以封包數與時長推算並校準為常見幀率，避免產生不合理的 H.264 Level 6.2。
+- 全範圍 `yuvj420p` 實例會轉成標準 `yuv420p`；MPEG-TS 誤報 90,000 fps 時，以封包數與時長推算並校準為常見幀率，避免產生不合理的輸出幀率。
 - Playwright 成功啟動本機無頭 Edge。
 - Gyan FFmpeg 9.0.2 essentials ZIP 的 SHA-256 與發布者提供值相符：
   `60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba`。

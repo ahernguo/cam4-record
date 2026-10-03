@@ -42,13 +42,10 @@ def validation_errors(info):
     if not videos:
         errors.append('video stream is missing')
     else:
-        if videos[0].get('codec_name') != 'h264':
-            errors.append(f"video codec is {videos[0].get('codec_name')}, expected h264")
+        if videos[0].get('codec_name') != 'hevc':
+            errors.append(f"video codec is {videos[0].get('codec_name')}, expected hevc")
         if videos[0].get('pix_fmt') != 'yuv420p':
             errors.append(f"pixel format is {videos[0].get('pix_fmt')}, expected yuv420p")
-        level = videos[0].get('level')
-        if isinstance(level, int) and level > 52:
-            errors.append(f'H.264 level is {level / 10:g}, expected 5.2 or lower')
         try:
             rate = Fraction(videos[0].get('avg_frame_rate', '0/1'))
             if float(rate) > 120:
@@ -102,7 +99,7 @@ def convert(source, stop, subtitle=None, suffix='', overwrite=False):
     command = [executable('ffmpeg'), '-nostdin', '-y', '-v', 'warning', '-i', str(source),
                '-map', '0:v:0', '-map', '0:a:0?', '-sn', '-dn']
     # Remux compatible streams; encode only when necessary or when burning text.
-    compatible = videos[0].get('codec_name') == 'h264' and videos[0].get('pix_fmt') == 'yuv420p'
+    compatible = videos[0].get('codec_name') == 'hevc' and videos[0].get('pix_fmt') == 'yuv420p'
     if compatible and not subtitle:
         command += ['-c:v', 'copy']
     else:
@@ -113,11 +110,12 @@ def convert(source, stop, subtitle=None, suffix='', overwrite=False):
         if subtitle:
             filters.append('ass=' + subtitle.as_posix())
         filters.append('pad=ceil(iw/2)*2:ceil(ih/2)*2')
-        command += ['-vf', ','.join(filters), '-c:v', 'libx264', '-preset', 'veryfast',
-                    '-crf', '20', '-pix_fmt', 'yuv420p', '-color_range', 'tv',
+        command += ['-vf', ','.join(filters), '-c:v', 'libx265', '-preset', 'medium',
+                    '-crf', '24', '-pix_fmt', 'yuv420p', '-color_range', 'tv',
                     '-r', output_frame_rate(info), '-fps_mode', 'cfr']
     audio = [s for s in info['streams'] if s['codec_type'] == 'audio']
-    command += ['-c:a', 'copy' if not audio or audio[0].get('codec_name') == 'aac' else 'aac',
+    command += ['-tag:v', 'hvc1',
+                '-c:a', 'copy' if not audio or audio[0].get('codec_name') == 'aac' else 'aac',
                 '-movflags', '+faststart', '-f', 'mp4', str(temporary)]
     with target.with_suffix('.ffmpeg.log').open('w', encoding='utf-8') as errors:
         child = subprocess.Popen(command, cwd=source.parent, stdout=subprocess.DEVNULL,
@@ -138,7 +136,7 @@ def convert(source, stop, subtitle=None, suffix='', overwrite=False):
                     child.wait()
     errors = validation_errors(probe(temporary))
     if errors:
-        raise ValueError('output failed MP4/H.264/AAC validation: ' + '; '.join(errors))
+        raise ValueError('output failed MP4/H.265/AAC validation: ' + '; '.join(errors))
     os.replace(temporary, target)
     log.info('verified MP4: %s', target)
     return target

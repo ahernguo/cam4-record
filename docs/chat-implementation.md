@@ -9,7 +9,7 @@
 ## 已實作：P0 網頁通訊監聽與離線合成
 
 1. 既有 Livestreamer 仍下載影音，寫入 `.capture`；正常收尾後改名 `.source`。
-2. 背景單一轉檔工作檢查實際格式；相容且沒有字幕的 H.264/yuv420p、AAC 可重新封裝，其餘轉碼。
+2. 背景單一轉檔工作檢查實際格式；相容且沒有字幕的 H.265/HEVC、yuv420p、AAC 可重新封裝，其餘轉碼。
 3. 以 `.chat.encoding.mp4` 寫入，ffprobe 驗證正數長度、MP4 封裝與編碼後才發布 `.chat.mp4`。
    全範圍 `yuvj420p` 會映射成有限範圍 `yuv420p`；若 MPEG-TS 將 90 kHz 時基誤報為幀率，則用視訊封包數與時長推算並對齊常見幀率。
 4. 每個錄影房間啟動一個獨立無頭瀏覽器(Headless Browser)，預設使用已安裝的 Microsoft Edge。

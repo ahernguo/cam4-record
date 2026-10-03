@@ -7,7 +7,7 @@ import media_output as media
 
 
 GOOD = {'format': {'format_name': 'mov,mp4,m4a,3gp,3g2,mj2', 'duration': '2'},
-        'streams': [{'codec_type': 'video', 'codec_name': 'h264', 'pix_fmt': 'yuv420p'},
+        'streams': [{'codec_type': 'video', 'codec_name': 'hevc', 'pix_fmt': 'yuv420p'},
                     {'codec_type': 'audio', 'codec_name': 'aac'}]}
 
 
@@ -20,12 +20,11 @@ class MediaTests(unittest.TestCase):
 
     def test_validation_explains_full_range_pixel_format(self):
         info = {'format': {'format_name': 'mov,mp4', 'duration': '2'},
-                'streams': [{'codec_type': 'video', 'codec_name': 'h264',
-                             'pix_fmt': 'yuvj420p', 'level': 62,
+                'streams': [{'codec_type': 'video', 'codec_name': 'hevc',
+                             'pix_fmt': 'yuvj420p',
                              'avg_frame_rate': '90000/1'}]}
         self.assertEqual(media.validation_errors(info),
                          ['pixel format is yuvj420p, expected yuv420p',
-                          'H.264 level is 6.2, expected 5.2 or lower',
                           'frame rate is 90000, expected 120 or lower'])
 
     def test_legacy_layout_rebuilds_existing_chat_output(self):
