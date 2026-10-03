@@ -1,4 +1,4 @@
-"""Durable, restartable MP4 post-processing. Never discard captured bytes."""
+"""Durable MP4 post-processing with cleanup only after output validation."""
 import json
 import logging
 import os
@@ -37,11 +37,13 @@ def verify_mp4(info):
             and all(s.get('codec_name') == 'aac' for s in audio))
 
 
-def convert(source, stop, subtitle=None, suffix=''):
+def convert(source, stop, subtitle=None, suffix='', overwrite=False):
     source = Path(source)
     target = source.with_suffix(suffix + '.mp4')
-    if target.exists():
-        return target
+    if target.exists() and not overwrite:
+        if verify_mp4(probe(target)):
+            return target
+        raise ValueError(f'existing output is not a valid MP4: {target}')
     info = probe(source)
     videos = [s for s in info['streams'] if s['codec_type'] == 'video']
     if not videos:
@@ -81,22 +83,56 @@ def convert(source, stop, subtitle=None, suffix=''):
     return target
 
 
+def cleanup_recording(source, target):
+    source = Path(source)
+    artifacts = [
+        source.with_suffix('.mp4'),
+        source.with_suffix('.chat.jsonl'),
+        source.with_suffix('.chat-status.json'),
+        source.with_suffix('.ass'),
+        source.with_suffix('.ffmpeg.log'),
+        source.with_suffix('.chat.ffmpeg.log'),
+        source.with_suffix('.encoding.mp4'),
+        source.with_suffix('.chat.encoding.mp4'),
+        source.with_suffix('.chat-options.json'),
+    ]
+    failures = []
+    for artifact in artifacts:
+        if artifact == target:
+            continue
+        try:
+            artifact.unlink(missing_ok=True)
+        except OSError as error:
+            failures.append((artifact, error))
+    if failures:
+        details = ', '.join(str(artifact) for artifact, _ in failures)
+        raise RuntimeError(f'could not remove temporary artifacts: {details}')
+    source.unlink()
+
+
 def process_recording(source, stop):
-    convert(source, stop)
     import chat_subtitles
+    source = Path(source)
     info = probe(source)
     video = next(s for s in info['streams'] if s['codec_type'] == 'video')
     subtitle = chat_subtitles.generate(source, float(info['format']['duration']),
                                        video['width'], video['height'])
+    options_path = source.with_suffix('.chat-options.json')
+    options = json.loads(options_path.read_text(encoding='utf-8')) if options_path.exists() else {}
+    rebuild = options.get('layout') != chat_subtitles.LAYOUT_VERSION
     if subtitle:
         import tempfile
         with tempfile.TemporaryDirectory(prefix='chat-', dir=source.parent) as folder:
             safe = Path(folder) / 'chat.ass'
             shutil.copyfile(subtitle, safe)
             relative = safe.relative_to(source.parent).as_posix()
-            convert(source, stop, subtitle=Path(relative), suffix='.chat')
+            target = convert(source, stop, subtitle=Path(relative), suffix='.chat',
+                             overwrite=rebuild)
     else:
-        log.warning('no usable chat messages; plain MP4 retained: %s', source)
+        log.warning('no usable chat messages; creating video-only chat MP4: %s', source)
+        target = convert(source, stop, suffix='.chat', overwrite=rebuild)
+    cleanup_recording(source, target)
+    log.info('final recording retained; temporary artifacts removed: %s', target)
 
 
 def worker(root, stop):

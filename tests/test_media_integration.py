@@ -40,24 +40,34 @@ class MediaIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='cam4 media ') as folder:
             source = Path(folder) / 'synthetic.source'
             subprocess.run([ffmpeg, '-v', 'error', '-f', 'lavfi', '-i', 'color=c=blue:s=640x360:r=25',
-                '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000', '-t', '2',
+                '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000', '-t', '14',
                 '-c:v', 'mpeg2video', '-c:a', 'mp2', '-f', 'mpegts', str(source)], check=True, timeout=30)
             self.assertEqual(media.probe(source)['format']['format_name'], 'mpegts')
             source.with_suffix('.chat.jsonl').write_text(json.dumps({
                 'elapsed': 0, 'username': 'Alice', 'text': 'Hello 測試'}) + '\n', encoding='utf-8')
+            source.with_suffix('.chat-options.json').write_text(json.dumps({
+                'layout': 'persistent-stack-v2'}), encoding='utf-8')
+            before = subprocess.run([ffmpeg, '-v', 'error', '-ss', '13', '-i', str(source), '-frames:v', '1',
+                '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], capture_output=True,
+                check=True, timeout=30).stdout
             media.process_recording(source, threading.Event())
-            plain = source.with_suffix('.mp4')
             chat = source.with_suffix('.chat.mp4')
-            self.assertTrue(media.verify_mp4(media.probe(plain)))
             self.assertTrue(media.verify_mp4(media.probe(chat)))
-            self.assertTrue(source.exists())
-            def frame(file):
-                return subprocess.run([ffmpeg, '-v', 'error', '-i', str(file), '-frames:v', '1',
-                    '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], capture_output=True, check=True, timeout=30).stdout
-            before, after = frame(plain), frame(chat)
+            # The first message remains burned in after 13 seconds; the old layout
+            # would have removed it at 12 seconds.
+            after = subprocess.run([ffmpeg, '-v', 'error', '-ss', '13', '-i', str(chat), '-frames:v', '1',
+                '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], capture_output=True,
+                check=True, timeout=30).stdout
             self.assertEqual(len(before), 640 * 360 * 3)
             self.assertEqual(len(before), len(after))
             self.assertNotEqual(before, after)
+            self.assertFalse(source.exists())
+            self.assertFalse(source.with_suffix('.chat.jsonl').exists())
+            self.assertFalse(source.with_suffix('.chat-options.json').exists())
+            self.assertFalse(source.with_suffix('.ass').exists())
+            self.assertFalse(source.with_suffix('.mp4').exists())
+            self.assertEqual([file.name for file in Path(folder).iterdir()],
+                             ['synthetic.chat.mp4'])
             # The right half is outside the overlay; it stays visually blue.
             offset = (180 * 640 + 600) * 3
             self.assertGreater(after[offset + 2], 240)

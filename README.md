@@ -61,7 +61,7 @@ Ctrl+C 可停止看門狗與子程序，清理時可能需要等待約 80 秒。
 
 直接執行 `python main.py` 也有心跳及例外紀錄，但沒有外部自動重啟。
 直接執行的日誌預設仍在 `E:\Cam4\logs`，可用 `CAM4_LOG_DIR` 環境變數覆寫。
-本次沒有自動刪除影片、建立排程或更動個人設定。
+看門狗本身不會刪除未完成的錄影、建立排程或更動個人設定；`feature/chat` 只會在最終成品驗證成功後清理同次錄影的暫存資料。
 
 ## 驗證
 
@@ -77,16 +77,17 @@ python -m py_compile main.py watchdog.py
 需要 FFmpeg（含 libx264）與 ffprobe，可放入 PATH，或設定 CAM4_FFMPEG、CAM4_FFPROBE 為執行檔完整路徑。
 錄影中寫入 `.capture`，正常收尾後改成 `.source`，背景工作以 ffprobe 辨識實際格式。
 H.264/yuv420p 與 AAC 可直接重新封裝；其他編碼轉為 H.264/yuv420p 與 AAC。
-先寫 `.encoding.mp4`，驗證封裝、編碼與正數長度後才發布 `.mp4`，並啟用 faststart。
-原始 `.source` 保留，會額外使用磁碟空間；失敗詳情見 `.ffmpeg.log` 與 capture.log，重啟後重試。
+先寫 `.encoding.mp4`，驗證封裝、編碼與正數長度後才發布 MP4，並啟用 faststart。
+轉檔失敗時保留 `.source` 與診斷資料，重啟後重試。
 強制終止留下的 `.capture` 不會自動處理：確認原程序已停止後，才能手動改成 `.source` 以恢復。
 舊版產生的 `.mp4` 不會自動修改。轉檔在錄影結束後開始；長時間直播尚未結束時只有 `.capture` 是正常情況。
 
 ## 聊天室實驗版（feature/chat）
 
-預設同步監聽公開聊天室，錄影結束後另產生 `.chat.mp4`：透明底、黃帳號／白內容、黑描邊。
+預設同步監聽公開聊天室，錄影結束後產生 `.chat.mp4`：透明底、黃帳號／白內容、黑描邊。
+聊天持續顯示，新訊息向下堆疊；高度不足時移除最舊訊息。成品驗證成功後，刪除同次錄影的來源、聊天紀錄、字幕及轉檔日誌，只保留 `.chat.mp4`。
 重啟前請在原本的 Python 環境執行 `python -m pip install -r requirements.txt`；預設使用已安裝的 Edge。
-沒有抓到訊息時僅產生純影音 `.mp4`，詳情見同名 `.chat-status.json`。
+沒有抓到訊息時仍產生純影音內容的 `.chat.mp4`；若產出失敗，相關診斷檔會保留。
 時間同步目前使用接收時間，尚待實錄校準。
 
 - [實作與優先順序](docs/chat-implementation.md)

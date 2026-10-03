@@ -63,19 +63,42 @@ class ChatTests(unittest.TestCase):
         self.assertIsNone(parse_message({'delete': True, 'p': 'b$A$123', 'm': 'x'}))
         self.assertIsNone(parse_message({'p': 'invalid', 'm': 'x'}))
 
-    def test_ass_escaping_offset_expiry_and_colors(self):
+    def test_ass_escaping_offset_persistence_and_colors(self):
         with tempfile.TemporaryDirectory() as folder:
             source = Path(folder) / 'test.source'
             source.with_suffix('.chat.jsonl').write_text(json.dumps({
                 'elapsed': 1, 'username': 'Alice', 'text': r'{\pos(1,1)}<b>Hello</b>'}) + '\n', encoding='utf-8')
             source.with_suffix('.chat-options.json').write_text('{"offset_seconds": 2}')
             output = generate(source, 20, 1280, 720).read_text(encoding='utf-8-sig')
-            self.assertIn('0:00:03.00,0:00:15.00', output)
+            self.assertIn('0:00:03.00,0:00:20.00', output)
             self.assertIn(r'\c&H00FFFF&', output)
             self.assertIn(r'\c&HFFFFFF&', output)
             self.assertNotIn(r'{\pos(1,1)}', output)
             self.assertNotIn('<b>', output)
             self.assertEqual(clean(r'\N'), '＼N')
+
+    def test_messages_persist_until_height_evicts_the_oldest(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / 'stack.source'
+            rows = [
+                {'elapsed': 1, 'username': 'Alice', 'text': 'one'},
+                {'elapsed': 2, 'username': 'Bob', 'text': 'two'},
+                {'elapsed': 3, 'username': 'Carol', 'text': 'three'},
+            ]
+            source.with_suffix('.chat.jsonl').write_text(
+                '\n'.join(json.dumps(row) for row in rows), encoding='utf-8')
+            output = generate(source, 10, 640, 110).read_text(encoding='utf-8-sig')
+            intervals = [line for line in output.splitlines() if line.startswith('Dialogue:')]
+            self.assertTrue(any('0:00:01.00,0:00:02.00' in line and 'Alice' in line
+                                for line in intervals))
+            self.assertTrue(any('0:00:02.00,0:00:03.00' in line and 'Alice' in line
+                                for line in intervals))
+            self.assertFalse(any('0:00:03.00,0:00:10.00' in line and 'Alice' in line
+                                 for line in intervals))
+            self.assertTrue(any('0:00:03.00,0:00:10.00' in line and 'Bob' in line
+                                for line in intervals))
+            self.assertTrue(any('0:00:03.00,0:00:10.00' in line and 'Carol' in line
+                                for line in intervals))
 
     def test_empty_capture_does_not_create_overlay(self):
         with tempfile.TemporaryDirectory() as folder:

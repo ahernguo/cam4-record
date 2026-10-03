@@ -28,7 +28,8 @@ recording_lock = Lock()
 progress_lock = Lock()
 progress = {}
 stop_event = Event()
-chat_options = {"enabled": True, "offset_seconds": 0}
+chat_options = {"enabled": True, "offset_seconds": 0,
+                "layout": "persistent-stack-v2"}
 main_progress = monotonic()
 last_scan = None
 "indicate who is recording"

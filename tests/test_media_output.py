@@ -12,6 +12,55 @@ GOOD = {'format': {'format_name': 'mov,mp4,m4a,3gp,3g2,mj2', 'duration': '2'},
 
 
 class MediaTests(unittest.TestCase):
+    def test_legacy_layout_rebuilds_existing_chat_output(self):
+        info = {'format': {'duration': '20'}, 'streams': [
+            {'codec_type': 'video', 'width': 640, 'height': 360}]}
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / 'test.source'
+            source.write_bytes(b'source')
+            source.with_suffix('.chat-options.json').write_text('{"offset_seconds": 0}')
+            subtitle = source.with_suffix('.ass')
+            subtitle.write_text('subtitle')
+            target = source.with_suffix('.chat.mp4')
+            with patch.object(media, 'probe', return_value=info), \
+                    patch('chat_subtitles.generate', return_value=subtitle), \
+                    patch.object(media, 'convert', return_value=target) as convert, \
+                    patch.object(media, 'cleanup_recording') as cleanup:
+                media.process_recording(source, threading.Event())
+            self.assertTrue(convert.call_args.kwargs['overwrite'])
+            cleanup.assert_called_once_with(source, target)
+
+    def test_cleanup_failure_retains_source_for_retry(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / 'test.source'
+            target = Path(folder) / 'test.chat.mp4'
+            source.write_bytes(b'source')
+            target.write_bytes(b'output')
+            original_unlink = Path.unlink
+            def unlink(path, *args, **kwargs):
+                if path.name == 'test.ass':
+                    raise OSError('locked')
+                return original_unlink(path, *args, **kwargs)
+            source.with_suffix('.ass').write_bytes(b'subtitle')
+            with patch.object(Path, 'unlink', autospec=True, side_effect=unlink):
+                with self.assertRaises(RuntimeError):
+                    media.cleanup_recording(source, target)
+            self.assertTrue(source.exists())
+            self.assertTrue(target.exists())
+
+    def test_cleanup_retains_only_final_chat_mp4_and_unrelated_files(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / 'test.source'
+            target = Path(folder) / 'test.chat.mp4'
+            unrelated = Path(folder) / 'another.source'
+            for file in (source, target, unrelated, source.with_suffix('.mp4'),
+                         source.with_suffix('.chat.jsonl'), source.with_suffix('.ass'),
+                         source.with_suffix('.chat.ffmpeg.log')):
+                file.write_bytes(b'data')
+            media.cleanup_recording(source, target)
+            self.assertEqual(sorted(file.name for file in Path(folder).iterdir()),
+                             ['another.source', 'test.chat.mp4'])
+
     def test_shutdown_terminates_encoder_and_retains_source(self):
         with tempfile.TemporaryDirectory() as folder:
             source = Path(folder) / 'test.source'

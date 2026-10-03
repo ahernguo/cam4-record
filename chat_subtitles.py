@@ -6,6 +6,8 @@ from pathlib import Path
 import re
 import textwrap
 
+LAYOUT_VERSION = 'persistent-stack-v2'
+
 
 def clean(value):
     value = html.unescape(re.sub(r'<[^>]*>', '', value))
@@ -32,8 +34,8 @@ def generate(source, duration, width, height):
         try:
             item = json.loads(line)
             start = float(item['elapsed']) + offset
-            if math.isfinite(start) and start < duration and start + 12 > 0:
-                messages.append((max(0, start), min(duration, start + 12), item))
+            if math.isfinite(start) and start < duration:
+                messages.append((max(0, start), item))
         except (ValueError, KeyError, TypeError):
             continue
     if not messages:
@@ -56,31 +58,38 @@ Style: Chat,Microsoft JhengHei,{font},&H00FFFFFF,&H00FFFFFF,&H00000000,&HFF00000
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 '''
-    # Sweep event boundaries rather than scanning the full recording for each message.
+    line_height = max(font + 4, round(font * 1.25))
+    gap = max(4, round(font * 0.5))
+    available_height = height - 2 * margin
+
+    def prepare(item):
+        name = clean(item['username'])[:chars]
+        wrapped = textwrap.wrap(clean(item['text']), width=chars) or ['']
+        content = wrapped[:2]
+        if len(wrapped) > 2:
+            content[-1] = content[-1][:-1] + '…'
+        return name, content, line_height * (1 + len(content)) + gap
+
+    # Repaint the active stack only when a message arrives. Each message remains
+    # visible until newer blocks need its vertical space.
     events = {}
-    for index, (start, end, item) in enumerate(messages):
-        events.setdefault(start, []).append((True, index))
-        events.setdefault(end, []).append((False, index))
-    active = {}
+    for index, (start, item) in enumerate(messages):
+        events.setdefault(start, []).append((index, item))
+    active = []
     lines = [header]
-    times = sorted(events)
+    times = sorted(events) + [duration]
     for i, moment in enumerate(times[:-1]):
-        for add, index in events[moment]:
-            if add:
-                active[index] = messages[index]
-            else:
-                active.pop(index, None)
+        for index, item in events[moment]:
+            active.append((index, *prepare(item)))
+        while len(active) > 1 and sum(block[3] for block in active) > available_height:
+            active.pop(0)
         end = times[i + 1]
-        for row, (_, _, item) in enumerate(list(active.values())[-4:]):
-            name = clean(item['username'])[:chars]
-            wrapped = textwrap.wrap(clean(item['text']), width=chars)
-            content = wrapped[:2]
-            if len(wrapped) > 2:
-                content[-1] = content[-1][:-1] + '…'
+        y = margin
+        for _, name, content, block_height in active:
             text = r'{\c&H00FFFF&}' + name + r':{\c&HFFFFFF&}\N' + r'\N'.join(content)
-            y = margin + row * font * 4
             position = f'{{\\an7\\pos({margin},{y})}}'
             lines.append(f'Dialogue: 0,{stamp(moment)},{stamp(end)},Chat,,0,0,0,,{position}{text}\n')
+            y += block_height
     # Fixed safe filename avoids FFmpeg filter escaping of arbitrary room/path text.
     target = source.with_suffix('.ass')
     target.write_text(''.join(lines), encoding='utf-8-sig')
