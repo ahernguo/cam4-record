@@ -9,6 +9,29 @@ import media_output as media
 
 
 class MediaIntegrationTests(unittest.TestCase):
+    def test_full_range_source_becomes_standard_yuv420p(self):
+        try:
+            ffmpeg = media.executable('ffmpeg')
+            media.executable('ffprobe')
+        except RuntimeError as error:
+            self.skipTest(str(error))
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / 'full-range.source'
+            subprocess.run([ffmpeg, '-v', 'error', '-f', 'lavfi',
+                '-i', 'color=c=gray:s=640x360:r=30', '-t', '2', '-c:v', 'libx264',
+                '-pix_fmt', 'yuvj420p', '-color_range', 'pc', '-f', 'mpegts', str(source)],
+                check=True, timeout=30)
+            self.assertEqual(media.probe(source)['streams'][0]['pix_fmt'], 'yuvj420p')
+            media.process_recording(source, threading.Event())
+            target = source.with_suffix('.chat.mp4')
+            info = media.probe(target)
+            self.assertTrue(media.verify_mp4(info))
+            self.assertEqual(info['streams'][0]['pix_fmt'], 'yuv420p')
+            # Limited range is the default for yuv420p; encoders may omit the
+            # optional color_range tag rather than reporting it as "tv".
+            self.assertIn(info['streams'][0].get('color_range'), (None, 'tv'))
+            self.assertLessEqual(info['streams'][0]['level'], 41)
+
     def test_h264_without_audio_is_remuxed(self):
         try:
             ffmpeg = media.executable('ffmpeg')
